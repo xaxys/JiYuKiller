@@ -19,8 +19,10 @@ void SetCkStatus(int s, LPWSTR str);
 
 void UpdateLogoState();
 void SetCkEnd();
+void QuitAndShutdown();
 void CreateTrayIcon(HWND hDlg);
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
+INT_PTR CALLBACK ShutDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam);
 
 void OnSetOutPutStat(LPWSTR str);

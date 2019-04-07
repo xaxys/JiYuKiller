@@ -1,10 +1,12 @@
 #include "stdafx.h"
 #include "DriverLoader.h"
+#include "KernelUtils.h"
 #include "JiYuKiller.h"
 #include "Utils.h"
 #include <shlwapi.h>
 
 extern WCHAR driverPath[MAX_PATH];
+extern bool setSelfProtect;
 
 HANDLE hKDrv = NULL;
 
@@ -50,6 +52,7 @@ BOOL MREG_ForceDeleteServiceRegkey(LPWSTR lpszDriverName)
 //    lpszDisplayName：nullptr
 BOOL LoadKernelDriver(const wchar_t* lpszDriverName, const wchar_t* driverPath, const wchar_t* lpszDisplayName)
 {
+	//MessageBox(0, driverPath, L"driverPath", 0);
 	wchar_t sDriverName[32];
 	wcscpy_s(sDriverName, lpszDriverName);
 
@@ -203,12 +206,24 @@ BOOL DriverLoaded() {
 	return hKDrv != NULL;
 }
 
+extern bool isWin7;
+extern bool isXp;
+
+BOOL XinitSelfProtect()
+{
+	return KFInstallSelfProtect();
+}
 BOOL XLoadDriver() {
-	if (!MIs64BitOS() && MIsRunasAdmin())
+	
+	if (!MIs64BitOS() && (isXp || MIsRunasAdmin()))
 	{
 		if (LoadKernelDriver(L"JiYuKillerDriver", driverPath, NULL))
-			if (OpenDriver())
+			if (OpenDriver()) {
 				XOutPutStatus(L"驱动加载成功");
+				KFSendDriverinitParam(isXp, isWin7);
+				if (isWin7 && setSelfProtect && !XinitSelfProtect())
+					XOutPutStatus(L"驱动自我保护失败！");
+			}
 			else XOutPutStatus(L"驱动加载成功，但打开驱动失败");
 	}
 	return FALSE;

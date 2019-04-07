@@ -60,6 +60,12 @@
     <ClInclude Include="KernelUtils.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="UpdateWindow.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="NetUtils.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
@@ -101,6 +107,12 @@
     <ClCompile Include="KernelUtils.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="UpdateWindow.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="NetUtils.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="JiYuKiller.rc">
@@ -135,5 +147,6 @@
     <None Include="MainCSS.css" />
     <None Include="AboutWindow.html" />
     <None Include="AboutWindow.css" />
+    <None Include="UpdateWindow.html" />
   </ItemGroup>
 </Project>

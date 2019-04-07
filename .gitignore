@@ -7,3 +7,5 @@ Debug/
 *.obj
 *.pdb
 *.pch
+*.lib
+*.exp

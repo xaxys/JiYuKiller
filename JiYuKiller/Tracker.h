@@ -7,6 +7,8 @@ DWORD TGetLastJiYuPid();
 LPWSTR TGetLastJiYuPayh();
 bool TFindTarget(LPDWORD outPid, bool *isNewState);
 
+DWORD TGetLastJyPid();
+
 bool TLocated();
 
 LPWSTR TGetCurrStatText();
@@ -19,14 +21,13 @@ void TSendCtlStat();
 void TSendCkEnd();
 void TSendBoom();
 void TFindJiYuPath();
-bool TFirstStartUp();
 
 
 bool TFindJiYuInstallLocation(bool usePid);
 
 
 bool TInstallVirus();
-bool TInstallVirusWithRemoteThread();
+int TInstallVirusWithRemoteThread();
 bool TInstallVirusWithDllApi();
 
 

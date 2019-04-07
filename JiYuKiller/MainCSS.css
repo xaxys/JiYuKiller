@@ -184,3 +184,18 @@ h5{
     left: 0;
     right: 0;
 }
+
+/* Updater */
+
+#progress_bg {
+    background-color: #a1a1a1;
+    border-radius: 50%;
+}
+#progress {
+    background-color: #bababa;
+    display: inline-block;
+    width: 30%;
+}
+#progress_text {
+    color: #808080;
+}

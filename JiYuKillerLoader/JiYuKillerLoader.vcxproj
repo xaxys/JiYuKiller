@@ -29,13 +29,13 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v141</PlatformToolset>
+    <PlatformToolset>v141_xp</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v141</PlatformToolset>
+    <PlatformToolset>v141_xp</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -90,7 +90,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>CINTERFACE;WIN32;_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
     </ClCompile>
@@ -124,7 +124,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>CINTERFACE;WIN32;NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
     </ClCompile>
@@ -174,6 +174,40 @@
     <ResourceCompile Include="JiYuKillerLoader.rc" />
   </ItemGroup>
   <ItemGroup>
+    <Image Include="..\..\..\..\图片\编程素材\图标\6268\g10.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\6268\g11.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\6268\g12.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\6268\g13.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\6268\g14.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\6268\g15.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\6268\g17.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\6268\g3.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\6268\g4.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\6268\g5.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\6268\g6.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\6268\g8.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\6268\g9.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\6983\z1.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\6983\z10.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\6983\z11.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\6983\z12.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\6983\z13.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\6983\z14.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\6983\z15.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\6983\z16.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\6983\z2.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\6983\z3.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\6983\z4.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\6983\z5.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\6983\z6.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\6983\z7.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\6983\z8.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\6983\z9.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\g1.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\g2.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\ico153.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\ico161.ico" />
+    <Image Include="..\..\..\..\图片\编程素材\图标\ico16783.ico" />
     <Image Include="JiYuKillerLoader.ico" />
     <Image Include="small.ico" />
   </ItemGroup>

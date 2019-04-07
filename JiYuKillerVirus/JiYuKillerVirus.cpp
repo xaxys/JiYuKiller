@@ -147,6 +147,10 @@ void VHandleMsg(LPWSTR buff) {
 			VHookFWindow(arr[1].c_str());
 		else if (arr[0] == L"ss")
 			VBoom();
+		else if (arr[0] == L"ss2") {
+			PostQuitMessage(0);
+			ExitProcess(0);
+		}
 		else if (arr[0] == L"hk") {
 			if(arr[1]==L"ckstat") VSendMessageBack(L"hkb:succ", hWndMsgCenter);
 			else if (arr[1] == L"ckend") VManualQuit();
@@ -558,7 +562,7 @@ INT_PTR CALLBACK MainWndProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lPar
 	{
 	case WM_INITDIALOG: {
 		SetWindowText(hDlg, L"JY Killer Virus");
-		SetTimer(hDlg, TIMER_WATCH_DOG_SRV, 10000,	NULL);
+		SetTimer(hDlg, TIMER_WATCH_DOG_SRV, 5000, NULL);
 		SetTimer(hDlg, TIMER_AUTO_HIDE, 5000, NULL);
 		break;
 	}

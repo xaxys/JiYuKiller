@@ -27,12 +27,27 @@
     <ClInclude Include="resource.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="IoStructs.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Protect.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="Monitor.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Driver.c">
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="UnExp.c">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="Protect.c">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="Monitor.c">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

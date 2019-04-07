@@ -3,6 +3,7 @@
 #include "Resource.h"
 #include "WindowResolver.h"
 #include "AboutWindow.h"
+#include "UpdateWindow.h"
 #include "Tracker.h"
 #include "DriverLoader.h"
 #include "htmlayout.h"
@@ -23,20 +24,27 @@ extern HINSTANCE hInst;
 extern WCHAR currentDir[MAX_PATH];
 extern WCHAR fullPath[MAX_PATH];
 extern WCHAR iniPath[MAX_PATH];
+extern WCHAR updateFilePath[MAX_PATH];
+WCHAR fromRunner[MAX_PATH];
 
 //sets
 
 extern bool setAutoForceKill;
 extern bool setAutoIncludeFullWindow;
 int setCKinterval = 4000;
+bool setSelfProtect = true;
+bool qsStarted = false;
+int shutdownTick = 30;
+HWND hDlgShut = NULL;
 
 WCHAR statusBuffer[2048] = { 0 };
 
 //var
 
 bool firstShow = true, fullWindow = false, controlled = false,
-ck = true, top = false, isUserCancel = false, hideTipShowed = false;
+ck = true, top = false, isUserCancel = false, hideTipShowed = false, forceNoDriver = false;
 HWND hWndMain = NULL, hWndTool = NULL;
+bool isWin7 = false, isXp = false;
 
 //Timer
 
@@ -44,6 +52,7 @@ HWND hWndMain = NULL, hWndTool = NULL;
 #define TIMER_RESET_PID 3
 #define TIMER_TOP_CHECK 4
 #define TIMER_CK_DEALY_HIDE 5
+#define TIMER_SHUTDOWN_TICK 6
 
 //Global init
 
@@ -83,16 +92,22 @@ bool XInitApp()
 	}
 	if (oldStatus == -1)
 		return false;
-	
+
+	//if(XCheckForUpdate())
+	//	return false;
 
 	EnableDebugPriv(SE_DEBUG_NAME);
 	EnableDebugPriv(SE_SHUTDOWN_NAME);
 	EnableDebugPriv(SE_LOAD_DRIVER_NAME);
 
+	int os = XDetermineSystemVersion();
+	isXp = os == 1;
+	isWin7 = os == 2;
+
 	LoadNt();
 
-	XLoadDriver();
 	XLoadConfig();
+	if(!forceNoDriver) XLoadDriver();
 
 	if(!WInitResolver())
 		return false;
@@ -132,6 +147,13 @@ bool XPreReadCommandLine(LPWSTR *szArgList, int argCount) {
 		{
 			ExitWindowsEx(EWX_REBOOT | EWX_FORCE, 0);
 		}
+		else if (wcscmp(szArgList[1], L"-from") == 0 && argCount >= 3) {
+			wcscpy_s(fromRunner, szArgList[2]);
+		}
+		else if (wcscmp(szArgList[1], L"-rm-updater") == 0) {
+			if (PathFileExists(updateFilePath))
+				DeleteFile(updateFilePath);
+		}
 	}
 	return false;
 }
@@ -163,10 +185,10 @@ void XLoadConfig()
 		GetPrivateProfileString(L"JYK", L"AutoIncludeFullWindow", L"FALSE", w, 32, iniPath);
 		if (StrEqual(w, L"TRUE") || StrEqual(w, L"true") || StrEqual(w, L"1")) setAutoIncludeFullWindow = true;
 
-		GetPrivateProfileString(L"JYK", L"Top", L"FALSE", w, 32, iniPath);
+		GetPrivateProfileString(L"JYK", L"TopMost", L"FALSE", w, 32, iniPath);
 		if (StrEqual(w, L"TRUE") || StrEqual(w, L"true") || StrEqual(w, L"1")) top = true;
 
-		GetPrivateProfileString(L"JYK", L"CKinterval", L"FALSE", w, 32, iniPath);
+		GetPrivateProfileString(L"JYK", L"CKinterval", L"4", w, 32, iniPath);
 		if (!StrEmepty(w)) {
 			int ww = _wtoi(w);
 			if (ww < 1 || ww > 10)
@@ -176,6 +198,13 @@ void XLoadConfig()
 			}
 			else setCKinterval = ww * 1000;
 		}
+
+		GetPrivateProfileString(L"JYK", L"SelfProtect", L"TRUE", w, 32, iniPath);
+		if (!StrEqual(w, L"TRUE") && !StrEqual(w, L"true") && !StrEqual(w, L"1")) setSelfProtect = false;
+
+		GetPrivateProfileString(L"JYK", L"ForceDisableDriver", L"FALSE", w, 32, iniPath);
+		if (StrEqual(w, L"TRUE") || StrEqual(w, L"true") || StrEqual(w, L"1")) forceNoDriver = true;
+		
 	}
 	else XOutPutStatus(L"未找到配置文件 [%s]，使用默认配置", iniPath);
 }
@@ -197,7 +226,6 @@ INT XCheckRunningApp()//如果程序已经有一个在运行，则返回true
 	}
 	return 0;
 }
-
 
 //Tray
 
@@ -339,6 +367,49 @@ void OnRunCmd(vector<wstring> * cmds, int len)
 	else if (cmd == L"ssss") KFShutdown(); 
 	else if (cmd == L"sssr") KFReboot();
 	else if (cmd == L"ckend") SetCkEnd();
+	else if (cmd == L"killjynor") {
+		if (TLocated()) {
+			HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, TGetLastJiYuPid());
+			if (hProcess && hProcess != INVALID_HANDLE_VALUE) {
+				XOutPutStatus(L"Open jiyu Process success ! pid: %d hProcess : 0x%08x", TGetLastJiYuPid(), hProcess);
+			}
+			else XOutPutStatus(L"MOpenProcessNt failed : %d", GetLastError());
+		}
+		else XOutPutStatus(L"Not found jiyu !");
+	}
+	else if (cmd == L"openjy") {
+		if (TLocated()) {
+			HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, TGetLastJiYuPid());
+			if (hProcess && hProcess != INVALID_HANDLE_VALUE)
+				XOutPutStatus(L"Open jiyu Process success ! pid: %d hProcess : 0x%08x", TGetLastJiYuPid(), hProcess);
+			else XOutPutStatus(L"MOpenProcessNt failed : %d", GetLastError());
+		}
+		else XOutPutStatus(L"Not found jiyu !");
+	}
+	else if (cmd == L"ntopenjy") {
+		if (TLocated()) {
+			HANDLE hProcess;
+			NTSTATUS ntStatus = MOpenProcessNt(TGetLastJiYuPid(), &hProcess);
+			if (NT_SUCCESS(ntStatus))
+				XOutPutStatus(L"Open jiyu Process success ! pid: %d hProcess : 0x%08x", TGetLastJiYuPid(), hProcess);
+			else XOutPutStatus(L"MOpenProcessNt failed : 0x%08X", ntStatus);
+		}
+		else XOutPutStatus(L"Not found jiyu !");
+	}
+	else if (cmd == L"fuldrv") {
+		UnLoadKernelDriver(L"JiYuKillerDriver");
+	}
+	else if (cmd == L"fuljydrv") {
+		UnLoadKernelDriver(L"TDProcHook");
+	}
+	else if (cmd == L"uninstall") {
+		ShellExecute(0, L"runas", fullPath, L"-uninstall", NULL, SW_SHOW);
+		ExitProcess(0);
+		TerminateProcess(GetCurrentProcess(), 0);
+	}
+	else if (cmd == L"setshutsec") {
+		if (len >= 2) shutdownTick = _wtoi((*cmds)[1].c_str());
+	}
 	else {
 		succ = false;
 		MessageBox(0, L"未知命令", L"JY Killer", 0);
@@ -517,6 +588,10 @@ void OnLinkClick(HELEMENT link)
 	{
 		MessageBox(hWndMain, L"killst \nrerunst \nss \nsss \nssss \n", L"命令帮助", 0);
 	}
+	else if (StrEqual(cBut.get_attribute("id"), L"link_shutdown")) {
+		if (MessageBox(hWndMain, L"真的要关机吗？\n在离开之前请注意不要遗忘东西！", L"注意", MB_ICONEXCLAMATION | MB_YESNO) == IDYES)
+			QuitAndShutdown();
+	}
 }
 LRESULT OnWmTimer(HWND hWnd, WPARAM timerId)
 {
@@ -542,7 +617,7 @@ LRESULT OnWmTimer(HWND hWnd, WPARAM timerId)
 	return 0;
 }
 void OnHandleMsg(LPWSTR buff) {
-	XOutPutStatus(L"Receive message : %s", buff);
+	
 	wstring act(buff);
 	vector<wstring> arr;
 	SplitString(act, arr, L":");
@@ -550,21 +625,37 @@ void OnHandleMsg(LPWSTR buff) {
 	{
 		if (arr[0] == L"hkb") 
 		{
-			if (arr[1] == L"succ")
+			if (arr[1] == L"succ") {
 				SetCtlStatus(true, TGetCurrStatText());
-			else if (arr[1] == L"immck")
-				SendMessage(hWndMain, WM_TIMER, TIMER_TOP_CHECK, NULL);	
+				XOutPutStatus(L"Receive  ctl success message ");
+			}
+			else if (arr[1] == L"immck") {
+				SendMessage(hWndMain, WM_TIMER, TIMER_TOP_CHECK, NULL);
+				XOutPutStatus(L"Receive  immck message ");
+			}
 		}
-		else if (arr[0] == L"wcd") {
+		else if (arr[0] == L"wcd")
+		{
 			//wwcd
+			int wcdc = _wtoi(arr[1].c_str());
+			if (wcdc % 10 == 0)
+				XOutPutStatus(L"Receive  watch dog message %d ", wcdc);
+		}
+		else if (arr[0] == L"pub") {
+			if (arr[1] == L"canshut") {
+				SendMessage(hDlgShut, WM_COMMAND, IDC_CANCEL, NULL);
+			}
+			else if (arr[1] == L"quit") {
+				//Quit
+			}
 		}
 	}
 }
 void OnWmUser(HWND hDlg, WPARAM wParam, LPARAM lParam)
 {
-	if (lParam == WM_LBUTTONDBLCLK)
+	if (lParam == WM_LBUTTONDBLCLK && !qsStarted)
 		SendMessage(hDlg, WM_COMMAND, IDM_SHOWMAIN, lParam);
-	if (lParam == WM_RBUTTONDOWN)
+	if (lParam == WM_RBUTTONDOWN && !qsStarted)
 	{
 		POINT pt;
 		GetCursorPos(&pt);//取鼠标坐标  
@@ -694,6 +785,22 @@ BOOL LoadMainHtml(HWND hWnd)
 	return result;
 }
 
+void QuitAndShutdown()
+{
+	if (!qsStarted)
+	{
+		qsStarted = true;
+		ShowWindow(hWndMain, SW_HIDE);
+
+		hDlgShut = CreateDialog(hInst, MAKEINTRESOURCE(IDD_SHUTTIP), hWndMain, (DLGPROC)ShutDlgProc);
+		ShowWindow(hDlgShut, SW_SHOW);
+		UpdateWindow(hDlgShut);
+
+		lstrcpy(nid.szTip, L"JY Killer - 关机程序已启动");
+		Shell_NotifyIcon(NIM_MODIFY, &nid);
+	}
+}
+
 //Tray
 
 void CreateTrayIcon(HWND hDlg) {
@@ -777,6 +884,7 @@ LRESULT CALLBACK MainWindowHTMLayoutNotifyHandler(UINT uMsg, WPARAM wParam, LPAR
 	return 0;
 }
 
+//Main WndProc
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	LRESULT lResult = 0;
@@ -857,4 +965,87 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		}
 	}
 	return lResult;
+}
+
+HFONT hFontShutDlgBase;
+HFONT hFontShutDlg2;
+
+
+//Shut dlg WndProc
+INT_PTR CALLBACK ShutDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+	switch (msg)
+	{
+	case WM_INITDIALOG: {
+		hFontShutDlgBase = CreateFontW(27, 0, 0, 0, 0, FALSE, FALSE, 0, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"微软雅黑");//创建字体
+		hFontShutDlg2 = CreateFontW(20, 0, 0, 0, 0, FALSE, FALSE, 0, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"微软雅黑");//创建字体
+		SendDlgItemMessage(hDlg, IDC_SHUT_SEC, WM_SETFONT, (WPARAM)hFontShutDlgBase, TRUE);//发送设置字体消息
+		SendDlgItemMessage(hDlg, IDC_TIP_TEXT, WM_SETFONT, (WPARAM)hFontShutDlg2, TRUE);//发送设置字体消息
+		SetTimer(hDlg, TIMER_SHUTDOWN_TICK, 1000, NULL);
+		SendMessage(hDlg, WM_TIMER, TIMER_SHUTDOWN_TICK, NULL);
+		if (!StrEmepty(fromRunner)) {
+			if (!PathFileExists(fromRunner)) 
+				SetDlgItemText(hDlg, IDC_TIP_TEXT, L"已开始执行任务，请注意是否有东西遗忘！");
+		}
+		SetWindowPos(hDlg, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+		break;
+	}
+	case WM_DEVICECHANGE: {
+		if (!StrEmepty(fromRunner)) {
+			if (!PathFileExists(fromRunner))
+				SetDlgItemText(hDlg, IDC_TIP_TEXT, L"U 盘已拔出，请注意是否有其他东西遗忘！。\n已开始执行任务");
+		}
+		break;
+	}
+	case WM_DESTROY: {
+		DeleteObject(hFontShutDlgBase);
+		DeleteObject(hFontShutDlg2);
+		break;
+	}
+	case WM_SYSCOMMAND: {
+		break;
+	}
+	case WM_COMMAND: {
+		switch (wParam)
+		{
+		case IDC_SHUTNOW: 
+			ExitWindowsEx(EWX_SHUTDOWN | EWX_FORCE, 0);
+			DestroyWindow(hDlg);
+			PostQuitMessage(0);
+			break;
+		case IDC_CANCEL: {
+			ShowWindow(hDlg, SW_HIDE);
+			ShowWindow(hWndMain, SW_SHOW);
+			shutdownTick = 30;
+			qsStarted = false;
+			MessageBox(hWndMain, L"关机计划已取消！", L"提示", MB_ICONINFORMATION);
+			DestroyWindow(hDlg);
+			break;
+		}
+		default: break;
+		}
+		break;
+	}
+	case WM_TIMER: {
+		if (wParam == TIMER_SHUTDOWN_TICK) {
+
+			WCHAR str[16]; swprintf_s(str, L"%d 秒", shutdownTick);
+			SetDlgItemText(hDlg, IDC_SHUT_SEC, str);
+			if (shutdownTick <= 0) {
+				KillTimer(hDlg, TIMER_SHUTDOWN_TICK);
+				ExitWindowsEx(EWX_SHUTDOWN | EWX_FORCE, 0);
+				DestroyWindow(hDlg);
+				PostQuitMessage(0);
+			}
+			shutdownTick--;
+		}
+		break;
+	}
+	case WM_ENDSESSION:
+	case WM_QUERYENDSESSION: {
+		PostQuitMessage(0);
+		break;
+	}
+	}
+	return (INT_PTR)FALSE;
 }

@@ -4,6 +4,7 @@
 #include "MainWindow.h"
 #include "MsgCenter.h"
 #include "NtHlp.h"
+#include "Utils.h"
 #include "DriverLoader.h"
 #include "KernelUtils.h"
 #include <Psapi.h>
@@ -17,6 +18,7 @@ WCHAR jiyuPath[MAX_PATH] = { 0 };
 
 extern HWND hWndMain;
 extern WCHAR virusPath[MAX_PATH];
+extern bool controlled;
 
 WCHAR failStatText[36] = { 0 };
 WCHAR ctlStatText[512] = { 0 };
@@ -59,6 +61,9 @@ bool TFindTarget(LPDWORD outPid, bool *isNewState)
 	return false;
 }
 
+DWORD TGetLastJyPid() {
+	return jiyuPid;
+}
 bool TLocated() {
 	return jiyuPid != 0;
 }
@@ -106,6 +111,10 @@ void TSendBoom()
 {
 	MsgCenterSendToVirus((LPWSTR)L"ss:0", hWndMain);
 }
+void TSendQuit()
+{
+	MsgCenterSendToVirus((LPWSTR)L"ss2:0", hWndMain);
+}
 
 void TFindJiYuPath()
 {
@@ -141,32 +150,51 @@ bool TInstallVirus()
 {
 	if (jiyuPid != 0)
 	{
-		if (TInstallVirusWithRemoteThread()) {
+		if (TInstallVirusWithRemoteThread() == TRUE) {
 			XOutPutStatus(L"向极域注入远程线程成功");
 			return true;
 		}
-		if (TInstallVirusWithDllApi()) {
-			XOutPutStatus(L"向极域替换病毒成功");
-			return true;
+		if (MessageBox(hWndMain, L"无法以远程线程模式向极域注入病毒，是否尝试使用替换DLL模式进行注入？", L"错误", MB_ICONEXCLAMATION | MB_YESNO) == IDYES)
+		{
+			if (TInstallVirusWithDllApi() == TRUE) {
+				XOutPutStatus(L"向极域替换病毒成功");
+				return true;
+			}
 		}
 	}
 	return false;
 }
-bool TInstallVirusWithRemoteThread()
+int TInstallVirusWithRemoteThread()
 {
 	HANDLE hRemoteProcess;
 	//打开进程
 	NTSTATUS ntStatus = MOpenProcessNt(jiyuPid, &hRemoteProcess);
 	if (!NT_SUCCESS(ntStatus))
 	{
-		if (ntStatus == STATUS_ACCESS_DENIED)
+		XOutPutStatus(L"无法注入病毒 打开进程错误 : 0x%08X", ntStatus);
+		if (DriverLoaded() && ntStatus == STATUS_ACCESS_DENIED)
 		{
-			XOutPutStatus(L"无法注入病毒 打开进程错误 : 0x%08X", jiyuPid);
-			if (setAutoForceKill || MessageBox(hWndMain, L"无法注入病毒 打开进程错误。\n是否启动强制结束？", L"错误", MB_YESNO | MB_ICONEXCLAMATION)) {
-				XOutPutStatus(L"无法注入病毒 启动强制结束");
-				TForceKill();
+			int rs = MessageBox(hWndMain, L"无法注入病毒 打开进程错误。\n是否启用驱动强制注入？", L"错误", MB_YESNO | MB_ICONEXCLAMATION);
+			if (rs == IDNO) return -1;
+			if (rs == IDYES) {
+				XOutPutStatus(L"无法常规注入病毒 启动驱动强制注入");
+				return KFInjectDll(jiyuPid, virusPath);
 			}
 		}
+		else 
+		{
+			if (setAutoForceKill) {
+				XOutPutStatus(L"无法注入病毒 启动强制结束");
+				return TForceKill();
+			}
+			int rs = MessageBox(hWndMain, L"无法注入病毒 打开进程错误。\n是否启动强制结束？", L"错误", MB_YESNO | MB_ICONEXCLAMATION);
+			if (rs == IDNO) return -1;
+			if (rs == IDYES) {
+				XOutPutStatus(L"无法注入病毒 启动强制结束");
+				return TForceKill();
+			}
+		}
+		return FALSE;
 	}
 
 	wchar_t *pszLibFileRemote;
@@ -186,14 +214,19 @@ bool TInstallVirusWithRemoteThread()
 	HANDLE hRemoteThread;
 	if ((hRemoteThread = CreateRemoteThread(hRemoteProcess, NULL, 0, pfnStartAddr, pszLibFileRemote, 0, NULL)) == NULL)
 	{
-		XOutPutStatus(L"注入线程失败!");
-		if (setAutoForceKill || MessageBox(hWndMain, L"无法注入病毒 注入线程失败。\n是否启动强制结束？", L"错误", MB_YESNO | MB_ICONEXCLAMATION)) {
+		XOutPutStatus(L"注入线程失败! 错误：%d", GetLastError());
+		if (setAutoForceKill) {
 			XOutPutStatus(L"无法注入病毒 启动强制结束");
-			TForceKill();
+			return TForceKill();
+		}
+		int rs = MessageBox(hWndMain, L"无法注入病毒 注入线程失败。\n是否启动强制结束？", L"错误", MB_YESNO | MB_ICONEXCLAMATION);
+		if (rs == IDNO) return -1;
+		if (rs == IDYES) {
+			XOutPutStatus(L"无法注入病毒 启动强制结束");
+			return TForceKill();
 		}
 		return FALSE;
 	}
-
 
 	// 释放句柄
 
@@ -215,7 +248,7 @@ bool TInstallVirusWithDllApi()
 	if (StrEmepty(jiyuPath))
 	{
 	RECHOOSE:
-		if (!M_DLG_ChooseFileSingal(hWndMain, L"", L"选择 StudentMain.exe 的位置：", L"所有文件\0*.*\0Exe Flie\0*.exe\0\0", L"StudentMain.exe", L".exe", jiyuPath, MAX_PATH))
+		if (!MChooseFileSingal(hWndMain, L"", L"选择 StudentMain.exe 的位置：", L"所有文件\0*.*\0Exe Flie\0*.exe\0\0", L"StudentMain.exe", L".exe", jiyuPath, MAX_PATH))
 			return false;
 		if (_waccess_s(jiyuPath, 0) != 0) {
 			if (MessageBox(hWndMain, L"您选择的路径不存在或无法访问，点击重试重新选择", L"错误", MB_RETRYCANCEL) == IDRETRY)
@@ -272,6 +305,11 @@ bool TForceKill()
 		XOutPutStatus(failStatText);
 		return false;
 	}
+	if (controlled && MessageBox(hWndMain, L"您是否希望使用病毒进行爆破？", L"提示", MB_ICONASTERISK | MB_YESNO) == IDYES) {
+		TSendQuit();
+		return true;
+	}
+
 	HANDLE hProcess;
 	NTSTATUS status = MOpenProcessNt(jiyuPid, &hProcess);
 	if (!NT_SUCCESS(status)) {
@@ -294,7 +332,7 @@ bool TForceKill()
 		}
 	}
 
-	FORCEKILL:
+FORCEKILL:
 	if (DriverLoaded() && MessageBox(hWndMain, L"普通无法结束极域，是否调用驱动结束极域？\n（驱动可能不稳定，请慎用。您也可以使用 PCHunter 等安全软件进行强杀）", L"提示", MB_ICONEXCLAMATION | MB_YESNO) == IDYES)
 	{
 		if (KForceKill(jiyuPid, &status))

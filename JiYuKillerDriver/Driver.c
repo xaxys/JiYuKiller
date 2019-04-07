@@ -1,29 +1,41 @@
 #include "Driver.h"
 #include "IoCtl.h"
+#include "IoStructs.h"
 #include "UnExp.h"
+#include "Protect.h"
+#include "Monitor.h"
 
 #define DEVICE_LINK_NAME L"\\??\\JKRK"
 #define DEVICE_OBJECT_NAME  L"\\Device\\JKRK"
 
 ULONG gIrpCount = 0;
 
-strcat_s_ _strcat_s;
-strcpy_s_ _strcpy_s;
-memcpy_s_ _memcpy_s;
-swprintf_s_ swprintf_s;
-wcscpy_s_ _wcscpy_s;
-wcscat_s_ _wcscat_s;
+strcat_ _strcat;
+strcpy_ _strcpy;
+memcpy_ _memcpy;
+swprintf_ swprintf;
+wcscpy_ _wcscpy;
+wcscat_ _wcscat;
 memset_ _memset;
 //====================================================
 //
-PsResumeProcess_ _PsResumeProcess;
-PsSuspendProcess_ _PsSuspendProcess;
-PsLookupProcessByProcessId_ _PsLookupProcessByProcessId;
-PsLookupThreadByThreadId_ _PsLookupThreadByThreadId;
-ZwTerminateProcess_ _ZwTerminateProcess;
+PsResumeProcess_ _PsResumeProcess = NULL;
+PsSuspendProcess_ _PsSuspendProcess = NULL;
+PsLookupProcessByProcessId_ _PsLookupProcessByProcessId = NULL;
+PsLookupThreadByThreadId_ _PsLookupThreadByThreadId = NULL;
+ZwTerminateProcess_ _ZwTerminateProcess = NULL;
+ObRegisterCallbacks_ _ObRegisterCallbacks = NULL;
+ObUnRegisterCallbacks_ _ObUnRegisterCallbacks = NULL;
+ObGetFilterVersion_ _ObGetFilterVersion = NULL;
+PsSetCreateProcessNotifyRoutineEx_ _PsSetCreateProcessNotifyRoutineEx = NULL;
+NtShutdownSystem_ _NtShutdownSystem = NULL;
+
+BOOLEAN isWin7 = FALSE, isWinXP = FALSE;
 
 extern PspTerminateThreadByPointer_ PspTerminateThreadByPointer;
 extern PspExitThread_ PspExitThread;
+
+extern BOOLEAN protectInited;
 
 NTSTATUS DriverEntry(IN PDRIVER_OBJECT pDriverObject, IN PUNICODE_STRING pRegPath)
 {
@@ -64,6 +76,27 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT pDriverObject, IN PUNICODE_STRING pRegPat
 
 	LoadFunctions();
 
+#ifdef _AMD64_
+	PLDR_DATA_TABLE_ENTRY64 ldr;
+	ldr = (PLDR_DATA_TABLE_ENTRY64)pDriverObject->DriverSection;
+#else
+	PLDR_DATA_TABLE_ENTRY32 ldr;
+	ldr = (PLDR_DATA_TABLE_ENTRY32)pDriverObject->DriverSection;
+#endif
+	ldr->Flags |= 0x20;//ÈÆ¹ýMmVerifyCallbackFunction¡£
+
+	ntStatus = KxPsMonitorInit();
+	if (!NT_SUCCESS(ntStatus))
+	{
+		KdPrint(("Couldn't Init Ps Monitos : 0x%08X\n", ntStatus));
+		ntStatus = STATUS_SUCCESS;
+	}
+	ntStatus = KxInitProtectProcess();
+	if (!NT_SUCCESS(ntStatus)) {
+		KdPrint(("Couldn't Init Protect Process : 0x%08X\n", ntStatus));
+		ntStatus = STATUS_SUCCESS;
+	}
+
 	KdPrint(("DriverEntry OK!\n"));
 	return ntStatus;
 }
@@ -75,6 +108,9 @@ VOID DriverUnload(_In_ struct _DRIVER_OBJECT *pDriverObject)
 
 	RtlInitUnicodeString(&DeviceLinkName, DEVICE_LINK_NAME);
 	IoDeleteSymbolicLink(&DeviceLinkName);
+
+	KxUnInitProtectProcess();
+	KxPsMonitorUnInit();
 
 	DeleteDeviceObject = pDriverObject->DeviceObject;
 	while (DeleteDeviceObject != NULL)
@@ -106,9 +142,26 @@ NTSTATUS IOControlDispatch(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
 
 	switch (IoControlCode)
 	{
+	case CTL_INITPARAM: {
+		JDRV_INITPARAM* param = (JDRV_INITPARAM*)InputData;
+		isWin7 = param->IsWin7;
+		isWinXP = param->IsWinXP;
+		LoadUnExpFunctions();
+		Status = STATUS_SUCCESS;
+		break;
+	}
+	case CTL_INITSELFPROTECT: {
+		ULONG_PTR pid = *(ULONG_PTR*)InputData;
+		if (protectInited)
+		{
+			KxProtectProcessWithPid((HANDLE)pid);
+			Status = STATUS_SUCCESS;
+		}
+		else Status = STATUS_UNSUCCESSFUL;
+		break;
+	}
 	case CTL_OPEN_PROCESS: {
 		ULONG_PTR pid = *(ULONG_PTR*)InputData;
-
 		PEPROCESS pEProc;
 		Status = PsLookupProcessByProcessId((HANDLE)pid, &pEProc);
 		if (NT_SUCCESS(Status))
@@ -116,7 +169,7 @@ NTSTATUS IOControlDispatch(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
 			HANDLE handle;
 			Status = ObOpenObjectByPointer(pEProc, 0, 0, PROCESS_ALL_ACCESS, *PsProcessType, UserMode, &handle);
 			if (NT_SUCCESS(Status)) {
-				_memcpy_s(OutputData, OutputDataLength, &handle, sizeof(handle));
+				_memcpy(OutputData, &handle, sizeof(handle));
 				Status = STATUS_SUCCESS;
 				Informaiton = OutputDataLength;
 			}
@@ -134,7 +187,7 @@ NTSTATUS IOControlDispatch(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
 			HANDLE handle;
 			Status = ObOpenObjectByPointer(pEThread, 0, 0, THREAD_ALL_ACCESS, *PsThreadType, UserMode, &handle);
 			if (NT_SUCCESS(Status)) {
-				_memcpy_s(OutputData, OutputDataLength, &handle, sizeof(handle));
+				_memcpy(OutputData, &handle, sizeof(handle));
 				Informaiton = OutputDataLength;
 				Status = STATUS_SUCCESS;
 			}
@@ -151,17 +204,17 @@ NTSTATUS IOControlDispatch(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
 		{
 			HANDLE handle;
 			Status = ObOpenObjectByPointer(pEProcess, 0, 0, PROCESS_ALL_ACCESS, *PsProcessType, UserMode, &handle);
-			if (NT_SUCCESS(Status))
+			if (NT_SUCCESS(Status)) {
 				Status = ZwTerminateProcess(handle, STATUS_SUCCESS);
-			ZwClose(handle);
+				ZwClose(handle);
+			}
 			if(Status == STATUS_ACCESS_DENIED)
 				Status = KillProcess(pEProcess);
 			ObDereferenceObject(pEProcess);
-
-			Status = STATUS_SUCCESS;
-			_memcpy_s(OutputData, OutputDataLength, &Status, sizeof(Status));
-			Informaiton = OutputDataLength;
 		}
+		Status = STATUS_SUCCESS;
+		_memcpy(OutputData, &Status, sizeof(Status));
+		Informaiton = OutputDataLength;
 		break;
 	}
 	case CTL_KILL_PROCESS_SPARE_NO_EFFORT: {
@@ -192,7 +245,7 @@ NTSTATUS IOControlDispatch(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
 			Status = _PsSuspendProcess(pEProc);
 			ObDereferenceObject(pEProc);
 		}
-		_memcpy_s(OutputData, OutputDataLength, &Status, sizeof(Status));
+		_memcpy(OutputData, &Status, sizeof(Status));
 		Informaiton = OutputDataLength;
 		break;
 	}
@@ -205,7 +258,7 @@ NTSTATUS IOControlDispatch(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
 			Status = _PsResumeProcess(pEProc);
 			ObDereferenceObject(pEProc);
 		}
-		_memcpy_s(OutputData, OutputDataLength, &Status, sizeof(Status));
+		_memcpy(OutputData, &Status, sizeof(Status));
 		Informaiton = OutputDataLength;
 		break;
 	}
@@ -237,7 +290,7 @@ NTSTATUS CreateDispatch(IN PDEVICE_OBJECT DeviceObject,IN PIRP Irp)
 	return STATUS_SUCCESS;
 }
 
-VOID LoadFunctions() 
+VOID LoadFunctions()
 {
 	UNICODE_STRING MemsetName;
 	UNICODE_STRING MemcpysName;
@@ -251,38 +304,65 @@ VOID LoadFunctions()
 	UNICODE_STRING PsLookupProcessByProcessIdName;
 	UNICODE_STRING PsLookupThreadByThreadIdName;
 	UNICODE_STRING ZwTerminateProcessName;
+	UNICODE_STRING ObRegisterCallbacksName;
+	UNICODE_STRING ObUnRegisterCallbacksName;
+	UNICODE_STRING ObGetFilterVersionName;
+	UNICODE_STRING PsSetCreateProcessNotifyRoutineExName;
+	UNICODE_STRING NtShutdownSystemName;
 
+	RtlInitUnicodeString(&NtShutdownSystemName, L"NtShutdownSystem");
+	RtlInitUnicodeString(&PsSetCreateProcessNotifyRoutineExName, L"PsSetCreateProcessNotifyRoutineEx");
+	RtlInitUnicodeString(&ObGetFilterVersionName, L"ObGetFilterVersion");
+	RtlInitUnicodeString(&ObUnRegisterCallbacksName, L"ObUnRegisterCallbacks");
+	RtlInitUnicodeString(&ObRegisterCallbacksName, L"ObRegisterCallbacks");
 	RtlInitUnicodeString(&ZwTerminateProcessName, L"ZwTerminateProces");
 	RtlInitUnicodeString(&PsLookupProcessByProcessIdName, L"PsLookupProcessByProcessId");
 	RtlInitUnicodeString(&PsLookupThreadByThreadIdName, L"PsLookupThreadByThreadId");
 	RtlInitUnicodeString(&PsResumeProcessName, L"PsResumeProcess");
 	RtlInitUnicodeString(&PsSuspendProcessName, L"PsSuspendProcess");
 	RtlInitUnicodeString(&MemsetName, L"memset");
-	RtlInitUnicodeString(&WCscatsName, L"wcscat_s");
-	RtlInitUnicodeString(&WCscpysName, L"wcscpy_s");
-	RtlInitUnicodeString(&SWprintfsName, L"swprintf_s");
-	RtlInitUnicodeString(&MemcpysName, L"memcpy_s");
-	RtlInitUnicodeString(&StrcpysName, L"strcpy_s");
-	RtlInitUnicodeString(&StrcatsName, L"strcat_s");
+	RtlInitUnicodeString(&WCscatsName, L"wcscat");
+	RtlInitUnicodeString(&WCscpysName, L"wcscpy");
+	RtlInitUnicodeString(&SWprintfsName, L"swprintf");
+	RtlInitUnicodeString(&MemcpysName, L"memcpy");
+	RtlInitUnicodeString(&StrcpysName, L"strcpy");
+	RtlInitUnicodeString(&StrcatsName, L"strcat");
 
+	_NtShutdownSystem = (NtShutdownSystem_)MmGetSystemRoutineAddress(&NtShutdownSystemName);
 	_PsLookupProcessByProcessId = (PsLookupProcessByProcessId_)MmGetSystemRoutineAddress(&PsLookupProcessByProcessIdName);
 	_PsLookupThreadByThreadId = (PsLookupThreadByThreadId_)MmGetSystemRoutineAddress(&PsLookupThreadByThreadIdName);
 	_PsResumeProcess = (PsResumeProcess_)MmGetSystemRoutineAddress(&PsResumeProcessName);
 	_PsSuspendProcess = (PsSuspendProcess_)MmGetSystemRoutineAddress(&PsSuspendProcessName);
 	_memset = (memset_)MmGetSystemRoutineAddress(&MemsetName);
-	_wcscpy_s = (wcscpy_s_)MmGetSystemRoutineAddress(&WCscpysName);
-	_wcscat_s = (wcscat_s_)MmGetSystemRoutineAddress(&WCscatsName);
-	_memcpy_s = (memcpy_s_)MmGetSystemRoutineAddress(&MemcpysName);
-	_strcat_s = (strcat_s_)MmGetSystemRoutineAddress(&StrcatsName);
-	_strcpy_s = (strcpy_s_)MmGetSystemRoutineAddress(&StrcpysName);
-	swprintf_s = (swprintf_s_)MmGetSystemRoutineAddress(&SWprintfsName);
+	_wcscpy = (wcscpy_)MmGetSystemRoutineAddress(&WCscpysName);
+	_wcscat = (wcscat_)MmGetSystemRoutineAddress(&WCscatsName);
+	_memcpy = (memcpy_)MmGetSystemRoutineAddress(&MemcpysName);
+	_strcat = (strcat_)MmGetSystemRoutineAddress(&StrcatsName);
+	_strcpy = (strcpy_)MmGetSystemRoutineAddress(&StrcpysName);
+	swprintf = (swprintf_)MmGetSystemRoutineAddress(&SWprintfsName);
 	_ZwTerminateProcess = (ZwTerminateProcess_)MmGetSystemRoutineAddress(&ZwTerminateProcessName);
+	_ObRegisterCallbacks = (ObRegisterCallbacks_)MmGetSystemRoutineAddress(&ObRegisterCallbacksName);
+	_ObUnRegisterCallbacks = (ObUnRegisterCallbacks_)MmGetSystemRoutineAddress(&ObUnRegisterCallbacksName);
+	_ObGetFilterVersion = (ObGetFilterVersion_)MmGetSystemRoutineAddress(&ObGetFilterVersionName);
+	_PsSetCreateProcessNotifyRoutineEx = (PsSetCreateProcessNotifyRoutineEx_)MmGetSystemRoutineAddress(&PsSetCreateProcessNotifyRoutineExName);
 
-	PspTerminateThreadByPointer = (PspTerminateThreadByPointer_)KxGetPspTerminateThreadByPointerAddressX_7Or8Or10(0x50);
-	PspExitThread = (PspExitThread_)KxGetPspExitThread_32_64();
+	KdPrint(("PsLookupProcessByProcessId : 0x%08X\n", _PsLookupProcessByProcessId));
+	KdPrint(("PsLookupThreadByThreadId : 0x%08X\n", _PsLookupThreadByThreadId));
+}
+VOID LoadUnExpFunctions()
+{
+	if(isWin7)
+		PspTerminateThreadByPointer = (PspTerminateThreadByPointer_)KxGetPspTerminateThreadByPointerAddressX_7Or8Or10(0x50);
+	else if(isWinXP)
+		PspTerminateThreadByPointer = (PspTerminateThreadByPointer_)KxGetPspTerminateThreadByPointerAddressX_7Or8Or10(0x50);
 
-	DbgPrint("PspTerminateThreadByPointer : 0x%08x", PspTerminateThreadByPointer);
-	DbgPrint("PspExitThread : 0x%08x", PspExitThread);
+	if (isWin7)
+		PspExitThread = (PspExitThread_)KxGetPspExitThread_32_64();
+	//else if (isWinXP)
+	//	PspExitThread = (PspExitThread_)KxGetPspExitThread_32_64();
+
+	DbgPrint("PspTerminateThreadByPointer : 0x%08x\n", PspTerminateThreadByPointer);
+	DbgPrint("PspExitThread : 0x%08x\n", PspExitThread);
 }
 
 NTSTATUS ZeroKill(ULONG_PTR PID)   //X32  X64
@@ -328,10 +408,10 @@ NTSTATUS KillProcess(PEPROCESS pEProcess)
 	NTSTATUS status = STATUS_UNSUCCESSFUL;
 	if (!PspTerminateThreadByPointer) return STATUS_NOT_SUPPORTED;
 
-	_PsSuspendProcess(pEProcess);
+	if(_PsSuspendProcess) _PsSuspendProcess(pEProcess);
 	for (UINT32 i = 8; i < 65536; i += 4)
 	{
-		//__try {
+		__try {
 			PETHREAD pEThread;
 			status = PsLookupThreadByThreadId((HANDLE)i, &pEThread);
 			if (NT_SUCCESS(status))
@@ -340,36 +420,35 @@ NTSTATUS KillProcess(PEPROCESS pEProcess)
 					status = PspTerminateThreadByPointer(pEThread, 0, TRUE);
 				ObDereferenceObject(pEThread);
 			}
-		/*}
+		}
 		__except (1) {
 			KdPrint(("---´íÎó!---"));
-		}*/
+		}
 	}
-	_PsResumeProcess(pEProcess);
+	if (_PsResumeProcess) _PsResumeProcess(pEProcess);
 	status = STATUS_SUCCESS;
 	return status;
 }
 
 VOID CompuleShutdown(void)
 {
-	typedef void(__fastcall*FCRB)(void);
+	_NtShutdownSystem(ShutdownPowerOff);
 
+	typedef void(__fastcall *FCRB)(void);
 	/*
 	mov ax,2001h
 	mov dx,1004h
 	out dx,ax
-	retn
+	ret
 	*/
-
 	FCRB fcrb = NULL;
-	UCHAR *shellcode = "\x66\xB8\x01\x20\x66\xBA\x04\x10\x66\xEF\xC3";
-	fcrb = (FCRB)ExAllocatePool(NonPagedPool, 13);
-	memcpy(fcrb, shellcode, 13);
+	UCHAR shellcode[12] = "\x66\xB8\x01\x20\x66\xBA\x04\x10\x66\xEF\xC3";
+	fcrb = ExAllocatePool(NonPagedPool, 11);
+	memcpy(fcrb, shellcode, 11);
 	fcrb();
 }
 VOID CompuleReBoot(void)
 {
-
 	typedef void(__fastcall*FCRB)(void);
 
 	/*
